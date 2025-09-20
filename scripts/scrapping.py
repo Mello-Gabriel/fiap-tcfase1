@@ -4,14 +4,14 @@
 import requests
 from bs4 import BeautifulSoup
 
-BASE_URL = "https://books.toscrape.com/catalogue/page-{}.html"
+INDEX_URL = "https://books.toscrape.com/index.html"
 
-urls = [BASE_URL.format(n) for n in range(1, 51, 1)]
+BASE_URL = "https://books.toscrape.com/"
 
 
 # %%
-def scrapper(urls: list[str]) -> BeautifulSoup:
-    """Faz a raspagem simples do site e retorna um objeto BeautifulSoup
+def scrapper(urls: list[str] | str) -> BeautifulSoup:
+    """Faz a raspagem simples do site e retorna um objeto BeautifulSoup.
 
     Parametros:
     ----------
@@ -23,17 +23,52 @@ def scrapper(urls: list[str]) -> BeautifulSoup:
     sopa : BeautifulSoup = Obejeto com o conteúdo do site
 
     """
+    if isinstance(urls, str):
+        urls = [urls]
     html = ""
     for url in urls:
-        dado_raspado = requests.get(url=url).text
+        dado_raspado = requests.get(url=url, timeout=300).text
         html = html + dado_raspado
         extracoes = BeautifulSoup(html, "html.parser")
 
     return extracoes
 
 
-def get_tittles(sopa: BeautifulSoup) -> list[str]:
-    """Captura os títulos dos livros
+# %%
+
+
+def get_categories_links(sopa: BeautifulSoup) -> dict[str, str]:
+    """Captura as links das categorias do site.
+
+    Parametros:
+    ----------
+    sopa : BeautifulSoup = Objeto BeautifulSoup com as extrações
+
+    Return:
+    ------
+    categorias : list[str] = Lista com as categorias do site
+
+    """
+    seletor = ".side_categories ul li ul a"
+    tags_de_categoria = sopa.select(seletor)
+
+    categorias = {}
+
+    # Iteramos sobre cada tag <a> que encontramos
+    for tag in tags_de_categoria:
+        # Extrai o texto e remove espaços extras
+        texto_categoria = tag.get_text().strip()
+        # Extrai o atributo href
+        link_categoria = str(tag.get("href"))
+        categorias[texto_categoria] = BASE_URL + link_categoria
+    return categorias
+
+
+# %%
+
+
+def get_tittles(sopa: BeautifulSoup) -> list[dict]:
+    """Captura os títulos dos livros.
 
     Parâmetros:
     ----------
@@ -41,23 +76,23 @@ def get_tittles(sopa: BeautifulSoup) -> list[str]:
     sopa : BeautifulSoup = Objeto BeautifulSoup com as extrações
 
     Return:
-    tiitulos : list[str] = Lista com os nomes dos livros
+    ------
+    titulos : list[str] = Lista com os nomes dos livros
 
     """
     livros = []
     articles = sopa.find_all("article", class_="product_pod")
     for article in articles:
         titulo = article.h3.a["title"]
-        preco = article.select_one('p.price_color').text
-        avaliacao = article.select_one('p.star-rating')['class'][1]
-        livros.append({
-            "titulo":"titulo",
-            "preco"
-        })
-    return titulos
+        preco = article.select_one("p.price_color").text
+        avaliacao = article.select_one("p.star-rating")["class"][1]
+        livros.append({"titulo": titulo, "preco": preco, "avaliacao": avaliacao})
+    return livros
+
+
 # %%
-def get_prices(sopa: BeautifulSoup)-> list[str]:
-    """Captura os valores dos livros
+def get_prices(sopa: BeautifulSoup) -> list[str]:
+    """Captura os valores dos livros.
 
     Parâmetros:
     ----------
@@ -71,10 +106,12 @@ def get_prices(sopa: BeautifulSoup)-> list[str]:
         print(price)
     return None
 
-print(get_prices(books))
+
 # %%
 
 if __name__ == "__main__":
-    books = scrapper(urls)
-    print(get_tittles(books))
+    categorias = scrapper(INDEX_URL)
+    links_categorias = get_categories_links(categorias)
+
+
 # %%

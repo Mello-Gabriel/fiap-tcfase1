@@ -6,7 +6,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4>=4.13.5",
-    "flask>=3.1.2",
+    "fastapi>=0.116.2",
+    "pydantic>=2.11.9",
     "requests>=2.32.5",
 ]
 
