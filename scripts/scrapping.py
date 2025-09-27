@@ -1,117 +1,185 @@
 """Modulo para realizar scrapping do site."""
 
 # %%
+import os
+from urllib.parse import urljoin
+
+import dotenv
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+from sqlalchemy import create_engine
+from tqdm import tqdm
+from word2number import w2n
 
 INDEX_URL = "https://books.toscrape.com/index.html"
 
 BASE_URL = "https://books.toscrape.com/"
 
+dotenv.load_dotenv()
+
+db_url = os.getenv("db_url")
+
 
 # %%
-def scrapper(urls: list[str] | str) -> BeautifulSoup:
-    """Faz a raspagem simples do site e retorna um objeto BeautifulSoup.
+
+engine = create_engine(db_url)
+
+
+# %%
+def scrapper(url: str, *, iterate: bool) -> list[BeautifulSoup] | BeautifulSoup:
+    """Faz a raspagem de uma url retornando um objeto BeautifulSoup.
+
+    Se houver um link para próxima página no site,
+    ele faz a raspagem até o fim dos nexts.
 
     Parametros:
     ----------
 
     url : str = Endereço em string do site a ser raspado
+    iterate : bool = Define se deve iterar entre as páginas do site. Default = True
+
 
     Return:
     ------
-    sopa : BeautifulSoup = Obejeto com o conteúdo do site
+    soups : list[BeautifulSoup] = Lista com objetos BeautifulSoup do site
+            ou apenas um objeto BeautifulSoup se iterate = False
+
 
     """
-    if isinstance(urls, str):
-        urls = [urls]
-    html = ""
-    for url in urls:
-        dado_raspado = requests.get(url=url, timeout=300).text
-        html = html + dado_raspado
-        extracoes = BeautifulSoup(html, "html.parser")
+    if not isinstance(url, str):
+        msg = "Url must be a string"
+        raise TypeError(msg)
 
-    return extracoes
+    soups: list[BeautifulSoup] = []
+    current_url: str | None = url
+    try:
+        while current_url:
+            response = requests.get(current_url, timeout=10)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content.decode("utf-8"), "html.parser")
+            soups.append(soup)
+            if not iterate:
+                return soups[0]
+            next_link_tag = soup.select_one("li.next > a, a[rel='next']")
+            if next_link_tag and next_link_tag.has_attr("href"):
+                next_link_relative = next_link_tag["href"]
+                if next_link_relative and next_link_relative != "#":
+                    current_url = urljoin(current_url, str(next_link_relative))
+                else:
+                    current_url = None
+            else:
+                current_url = None
+
+    except requests.exceptions.RequestException as e:
+        print(f"Erro ao acessar {current_url}: {e}")
+    except Exception as e:
+        print(f"Erro inesperado: {e}")
+
+    return soups
+
+
+# %%
+def get_books_links(sopas: list[BeautifulSoup]) -> dict[str, str]:
+    """Get the books links."""
+    if not isinstance(sopas, list):
+        msg = "Must be a list"
+        raise TypeError(msg)
+
+    for item in sopas:
+        if not isinstance(item, BeautifulSoup):
+            msg = "All items in the list must be BeautifulSoup objects"
+            raise TypeError(msg)
+
+    book_links: dict = {}
+    for sopa in sopas:
+        books = sopa.find_all("h3")
+        for book in books:
+            name = book.a["title"]
+            link = book.a["href"].split("/")[-2:]
+            book_links[name] = BASE_URL + "catalogue/" + "/".join(link)
+    return book_links
 
 
 # %%
 
 
-def get_categories_links(sopa: BeautifulSoup) -> dict[str, str]:
-    """Captura as links das categorias do site.
+def get_book_details(sopa: BeautifulSoup, page_url: str) -> dict:
+    """Extract various details from a book's detail page."""
 
-    Parametros:
-    ----------
-    sopa : BeautifulSoup = Objeto BeautifulSoup com as extrações
+    def get_text_or_na(element):
+        return element.get_text(strip=True) if element else "N/A"
 
-    Return:
-    ------
-    categorias : list[str] = Lista com as categorias do site
+    # Helper for product table
+    def get_product_info(field_name):
+        th_element = sopa.find("th", string=field_name)
+        if th_element:
+            td_element = th_element.find_next_sibling("td")
+            return get_text_or_na(td_element)
+        return "N/A"
 
-    """
-    seletor = ".side_categories ul li ul a"
-    tags_de_categoria = sopa.select(seletor)
+    title_element = sopa.select_one("div.product_main h1")
+    price_element = sopa.select_one("p.price_color")
+    rating_element = sopa.select_one("p.star-rating")
+    availability_element = sopa.select_one("p.instock.availability")
+    category_element = sopa.select_one("ul.breadcrumb li:nth-of-type(3) a")
+    image_element = sopa.select_one("#product_gallery img")
+    description_element = sopa.select_one("#product_description + p")
 
-    categorias = {}
+    title = get_text_or_na(title_element)
+    price = get_text_or_na(price_element)
+    availability = get_text_or_na(availability_element)
+    category = get_text_or_na(category_element)
+    description = get_text_or_na(description_element)
 
-    # Iteramos sobre cada tag <a> que encontramos
-    for tag in tags_de_categoria:
-        # Extrai o texto e remove espaços extras
-        texto_categoria = tag.get_text().strip()
-        # Extrai o atributo href
-        link_categoria = str(tag.get("href"))
-        categorias[texto_categoria] = BASE_URL + link_categoria
-    return categorias
+    rating = (
+        str(rating_element["class"][1])
+        if rating_element and len(rating_element.get("class", [])) > 1
+        else "N/A"
+    )
+    rating = w2n.word_to_num(rating) if rating != "N/A" else "N/A"
 
+    image_url = "N/A"
+    if image_element and image_element.has_attr("src"):
+        image_url = urljoin(page_url, str(image_element["src"]))
 
-# %%
+    # Product Information
+    upc = get_product_info("UPC")
+    product_type = get_product_info("Product Type")
+    num_reviews = get_product_info("Number of reviews")
 
-
-def get_tittles(sopa: BeautifulSoup) -> list[dict]:
-    """Captura os títulos dos livros.
-
-    Parâmetros:
-    ----------
-
-    sopa : BeautifulSoup = Objeto BeautifulSoup com as extrações
-
-    Return:
-    ------
-    titulos : list[str] = Lista com os nomes dos livros
-
-    """
-    livros = []
-    articles = sopa.find_all("article", class_="product_pod")
-    for article in articles:
-        titulo = article.h3.a["title"]
-        preco = article.select_one("p.price_color").text
-        avaliacao = article.select_one("p.star-rating")["class"][1]
-        livros.append({"titulo": titulo, "preco": preco, "avaliacao": avaliacao})
-    return livros
+    return {
+        "title": title,
+        "price": price,
+        "rating": rating,
+        "availability": availability,
+        "category": category,
+        "image_url": image_url,
+        "description": description,
+        "upc": upc,
+        "product_type": product_type,
+        "number_of_reviews": num_reviews,
+    }
 
 
-# %%
-def get_prices(sopa: BeautifulSoup) -> list[str]:
-    """Captura os valores dos livros.
-
-    Parâmetros:
-    ----------
-
-    sopa: BeautifulSoup = Objeto BeautifulSoup com as extrações
-
-    """
-    valores = []
-    headers = sopa.find_all("p.price_color")
-    for price in headers:
-        print(price)
-    return None
+def main() -> tuple[pd.DataFrame, dict]:
+    """Orquestra as funções."""
+    books_data = {}
+    soups = scrapper(INDEX_URL, iterate=True)
+    book_links = get_books_links(soups)
+    for title, link in tqdm(book_links.items()):
+        book_soup = scrapper(link, iterate=False)
+        books_data[title] = get_book_details(book_soup, link)
+    books_table = pd.DataFrame(books_data).transpose().reset_index(drop=True)
+    books_table["currency"] = books_table["price"].str.extract(r"([^\d\.]+)")
+    books_table["price"] = books_table["price"].str.extract(r"(\d+\.\d+)")
+    books_table.to_csv("../data/books.csv", index=False, encoding="utf-8")
+    table.to_sql("books", engine, if_exists="replace", index=False)
+    return books_table, books_data
 
 
 # %%
 
 if __name__ == "__main__":
-    categorias = scrapper(INDEX_URL)
-    links_categorias = get_categories_links(categorias)
-
-
+    table, dic = main()
 # %%
