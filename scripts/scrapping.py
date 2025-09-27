@@ -129,6 +129,7 @@ def get_book_details(sopa: BeautifulSoup, page_url: str) -> dict:
     title = get_text_or_na(title_element)
     price = get_text_or_na(price_element)
     availability = get_text_or_na(availability_element)
+    availability = availability.replace("In stock (", "").replace(" available)", "")
     category = get_text_or_na(category_element)
     description = get_text_or_na(description_element)
 
@@ -174,6 +175,9 @@ def main() -> tuple[pd.DataFrame, dict]:
     books_table["currency"] = books_table["price"].str.extract(r"([^\d\.]+)")
     books_table["price"] = books_table["price"].str.extract(r"(\d+\.\d+)")
     books_table.to_csv("../data/books.csv", index=False, encoding="utf-8")
+    table["price"] = table["price"].astype(float)
+    table["rating"] = table["rating"].astype(int)
+    table["number_of_reviews"] = table["number_of_reviews"].astype(int)
     table.to_sql("books", engine, if_exists="replace", index=False)
     return books_table, books_data
 
