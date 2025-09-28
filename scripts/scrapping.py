@@ -7,10 +7,10 @@ from urllib.parse import urljoin
 import dotenv
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from sqlalchemy import create_engine
 from tqdm import tqdm
-from word2number import w2n
+from word2number import w2n  # type: ignore
 
 INDEX_URL = "https://books.toscrape.com/index.html"
 
@@ -18,7 +18,7 @@ BASE_URL = "https://books.toscrape.com/"
 
 dotenv.load_dotenv()
 
-db_url = os.getenv("db_url")
+db_url = str(os.getenv("DB_URL"))
 
 
 # %%
@@ -45,6 +45,10 @@ def scrapper(url: str, *, iterate: bool) -> list[BeautifulSoup] | BeautifulSoup:
     soups : list[BeautifulSoup] = Lista com objetos BeautifulSoup do site
             ou apenas um objeto BeautifulSoup se iterate = False
 
+    Raise:
+    -----
+
+    TypeError: Se url não for uma string
 
     """
     if not isinstance(url, str):
@@ -81,7 +85,23 @@ def scrapper(url: str, *, iterate: bool) -> list[BeautifulSoup] | BeautifulSoup:
 
 # %%
 def get_books_links(sopas: list[BeautifulSoup]) -> dict[str, str]:
-    """Get the books links."""
+    """Captura os links dos livros de uma lista de objetos BeautifulSoup.
+
+    Parametros:
+    ----------
+
+    sopas : list[BeautifulSoup] = Lista de objetos BeautifulSoup
+
+    Return:
+    ------
+    book_links : dict[str, str] = Dicionário com os links dos livros
+
+    Raise:
+    -----
+
+    TypeError: Se sopas não for uma lista de BeautifulSoup
+
+    """
     if not isinstance(sopas, list):
         msg = "Must be a list"
         raise TypeError(msg)
@@ -107,11 +127,11 @@ def get_books_links(sopas: list[BeautifulSoup]) -> dict[str, str]:
 def get_book_details(sopa: BeautifulSoup, page_url: str) -> dict:
     """Extract various details from a book's detail page."""
 
-    def get_text_or_na(element):
+    def get_text_or_na(element: Tag) -> str:
         return element.get_text(strip=True) if element else "N/A"
 
     # Helper for product table
-    def get_product_info(field_name):
+    def get_product_info(field_name: str) -> str:
         th_element = sopa.find("th", string=field_name)
         if th_element:
             td_element = th_element.find_next_sibling("td")
@@ -166,19 +186,24 @@ def get_book_details(sopa: BeautifulSoup, page_url: str) -> dict:
 def main() -> tuple[pd.DataFrame, dict]:
     """Orquestra as funções."""
     books_data = {}
+    print("Raspando links dos livros")
     soups = scrapper(INDEX_URL, iterate=True)
+    print("Todos links raspados, iniciando coleta de informações de livros.")
     book_links = get_books_links(soups)
-    for title, link in tqdm(book_links.items()):
+    for title, link in tqdm(
+        desc="Raspando detalhes dos livros", iterable=book_links.items()
+    ):
         book_soup = scrapper(link, iterate=False)
         books_data[title] = get_book_details(book_soup, link)
     books_table = pd.DataFrame(books_data).transpose().reset_index(drop=True)
     books_table["currency"] = books_table["price"].str.extract(r"([^\d\.]+)")
     books_table["price"] = books_table["price"].str.extract(r"(\d+\.\d+)")
+    books_table["price"] = books_table["price"].astype(float)
+    books_table["rating"] = books_table["rating"].astype(int)
+    books_table["number_of_reviews"] = books_table["number_of_reviews"].astype(int)
+    books_table["id"] = books_table.index + 1
     books_table.to_csv("../data/books.csv", index=False, encoding="utf-8")
-    table["price"] = table["price"].astype(float)
-    table["rating"] = table["rating"].astype(int)
-    table["number_of_reviews"] = table["number_of_reviews"].astype(int)
-    table.to_sql("books", engine, if_exists="replace", index=False)
+    books_table.to_sql("books", engine, if_exists="replace", index=False)
     return books_table, books_data
 
 
