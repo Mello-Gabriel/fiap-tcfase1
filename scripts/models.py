@@ -1,4 +1,6 @@
+# %%
 import os
+from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 from sqlalchemy import Column, Float, Integer, String, create_engine
@@ -6,8 +8,16 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 load_dotenv()
 
-db_url = str(os.getenv("DB_URL"))
-
+USER = os.getenv("user")
+PASSWORD = quote_plus(os.getenv("password"))
+HOST = os.getenv("host")
+PORT = os.getenv("port")
+DBNAME = os.getenv("dbname")
+# %%
+db_url = (
+    f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/{DBNAME}?sslmode=require"
+)
+# %%
 engine = create_engine(db_url)
 
 Base = declarative_base()
@@ -132,3 +142,5 @@ if __name__ == "__main__":
         top_price_books = session.query(Top15Price).limit(5).all()
         for book in top_price_books:
             print(f"- {book.title} (£{book.price})")
+
+# %%
