@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "fastapi",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

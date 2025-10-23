@@ -8,6 +8,7 @@ import dotenv
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup, Tag
+from models import Base, Book  # Importar o modelo e a base do SQLAlchemy
 from sqlalchemy import create_engine
 from tqdm import tqdm
 from word2number import w2n  # type: ignore
@@ -202,7 +203,14 @@ def main() -> tuple[pd.DataFrame, dict]:
     books_table["rating"] = books_table["rating"].astype(int)
     books_table["number_of_reviews"] = books_table["number_of_reviews"].astype(int)
     books_table["id"] = books_table.index + 1
+
+    # Criar/recriar a tabela usando o schema do modelo SQLAlchemy
+    print("Recriando a tabela 'books' no banco de dados...")
+    Base.metadata.drop_all(engine, tables=[Book.__table__])
+    Base.metadata.create_all(engine, tables=[Book.__table__])
+
     books_table.to_csv("../data/books.csv", index=False, encoding="utf-8")
+    # Inserir os dados na tabela recém-criada
     books_table.to_sql("books", engine, if_exists="replace", index=False)
     return books_table, books_data
 

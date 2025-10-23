@@ -27,17 +27,17 @@ class Book(Base):
     __tablename__ = "books"
 
     id = Column(Integer, primary_key=True)
-    title = Column(String)
-    price = Column(Float)
-    rating = Column(Integer)
+    title = Column(String, nullable=False)
+    price = Column(Float, nullable=False)
+    rating = Column(Integer, nullable=False)
     availability = Column(String)
-    category = Column(String)
+    category = Column(String, nullable=False)
     image_url = Column(String)
     description = Column(String)
-    upc = Column(String)
+    upc = Column(String, nullable=False, unique=True)
     product_type = Column(String)
-    number_of_reviews = Column(Integer)
-    currency = Column(String)
+    number_of_reviews = Column(Integer, nullable=False)
+    currency = Column(String, nullable=False)
 
     def __repr__(self):
         return f"Book(id={self.id}, title={self.title}, price={self.price})"
