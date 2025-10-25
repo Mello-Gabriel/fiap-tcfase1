@@ -1,4 +1,5 @@
 .env
 .venv
-.gitignore
+.mypy_cache
+.ruff_cache
 scripts/__pycache__
